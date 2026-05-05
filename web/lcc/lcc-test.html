@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LCC Hub Test</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         margin: 1em; }
+  #status { padding: 0.4em 0.8em; border-radius: 4px; display: inline-block; }
+  .ok    { background: #c8f7c5; }
+  .bad   { background: #f8c7c7; }
+  .warn  { background: #fff3b0; }
+  textarea, pre { width: 100%; box-sizing: border-box; font-family: ui-monospace,
+         Menlo, Consolas, monospace; font-size: 12px; }
+  pre { background: #f4f4f4; padding: 0.5em; max-height: 16em; overflow: auto; }
+  button { margin-right: 0.4em; }
+  .row { margin: 0.6em 0; }
+  .stat { display: inline-block; min-width: 8em; }
+</style>
+</head>
+<body>
+<h1>LCC Hub Test</h1>
+
+<div class="row">
+  <span id="status" class="bad">disconnected</span>
+  <button id="connect">Connect</button>
+  <button id="disconnect" disabled>Disconnect</button>
+</div>
+
+<div class="row">
+  <label>Send a single frame:
+    <input id="oneFrame" size="42" value=":X19490AAAN0102030405060708;">
+  </label>
+  <button id="sendOne">Send</button>
+</div>
+
+<div class="row">
+  <button id="send100">Send 100</button>
+  <button id="send10k">Burst 10,000</button>
+  <button id="clear">Clear log</button>
+</div>
+
+<div class="row">
+  <span class="stat">Sent: <span id="sent">0</span></span>
+  <span class="stat">Received: <span id="recv">0</span></span>
+  <span class="stat">Last burst: <span id="burstMs">-</span> ms</span>
+</div>
+
+<h3>Received frames (last 100)</h3>
+<pre id="log"></pre>
+
+<script>
+  const statusEl   = document.getElementById('status');
+  const log        = document.getElementById('log');
+  const sentEl     = document.getElementById('sent');
+  const recvEl     = document.getElementById('recv');
+  const burstMsEl  = document.getElementById('burstMs');
+  let ws = null;
+  let sent = 0, recv = 0;
+  const lines = [];
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = cls;
+  }
+  function appendLog(line) {
+    lines.push(line);
+    if (lines.length > 100) lines.shift();
+    log.textContent = lines.join('\n');
+    log.scrollTop = log.scrollHeight;
+  }
+
+  document.getElementById('connect').onclick = () => {
+    const url = 'ws://' + location.host + '/lcc/hub';
+    ws = new WebSocket(url, ['openlcb-gc']);
+    setStatus('connecting…', 'warn');
+    ws.onopen    = () => { setStatus('connected ' + (ws.protocol||''), 'ok');
+                           document.getElementById('connect').disabled = true;
+                           document.getElementById('disconnect').disabled = false; };
+    ws.onmessage = ev => { recv++; recvEl.textContent = recv; appendLog(ev.data); };
+    ws.onerror   = ev => { setStatus('error', 'bad'); };
+    ws.onclose   = ev => { setStatus('closed (' + ev.code + ' ' + ev.reason + ')', 'bad');
+                           document.getElementById('connect').disabled = false;
+                           document.getElementById('disconnect').disabled = true; };
+  };
+  document.getElementById('disconnect').onclick = () => { if (ws) ws.close(); };
+
+  document.getElementById('sendOne').onclick = () => {
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(document.getElementById('oneFrame').value);
+    sent++; sentEl.textContent = sent;
+  };
+  document.getElementById('send100').onclick = () => {
+    if (!ws || ws.readyState !== 1) return;
+    for (let i = 0; i < 100; i++) {
+      ws.send(':X19490AAAN' + i.toString(16).padStart(15, '0').toUpperCase() + ';');
+    }
+    sent += 100; sentEl.textContent = sent;
+  };
+  document.getElementById('send10k').onclick = () => {
+    if (!ws || ws.readyState !== 1) return;
+    const t0 = performance.now();
+    for (let i = 0; i < 10000; i++) {
+      ws.send(':X19490AAAN' + i.toString(16).padStart(15, '0').toUpperCase() + ';');
+    }
+    const t1 = performance.now();
+    sent += 10000; sentEl.textContent = sent;
+    burstMsEl.textContent = (t1 - t0).toFixed(0);
+  };
+  document.getElementById('clear').onclick = () => {
+    lines.length = 0; log.textContent = '';
+    sent = 0; recv = 0; sentEl.textContent = 0; recvEl.textContent = 0;
+    burstMsEl.textContent = '-';
+  };
+</script>
+</body>
+</html>
